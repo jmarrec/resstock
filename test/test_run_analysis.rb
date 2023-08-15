@@ -516,4 +516,53 @@ class TestRunAnalysis < Minitest::Test
 
     FileUtils.cp(results_allupgrades, File.join(File.dirname(@national_upgrades), 'project_national'))
   end
+
+  def test_debug
+    yml = ' -y test/tests_yml_files/debug/resstock_project.yaml'
+    @command += yml
+
+    system(@command)
+
+    results_baseline = File.join(@testing_baseline, 'results-Baseline.csv')
+    assert(File.exist?(results_baseline))
+    results = CSV.read(results_baseline)
+    results_h = {}
+    results[0].each_with_index { |k, i| results_h[k] = results[1][i] }
+
+    fuel_types = [
+      "coal",
+      "electricity",
+      "fuel_oil",
+      "natural_gas",
+      "propane",
+      "wood_cord",
+      "wood_pellets",
+    ]
+    fuel_types_regex = fuel_types.join('|')
+    sim_output_regex = /report_simulation_output\.end_use_(?<fuel_type>#{fuel_types_regex})_(?<end_use>.*)_m_btu/
+    fuel_type_end_use = []
+    results_h.each do |k, v|
+      if (m = k.match(sim_output_regex))
+        if v.to_f > 0.0
+          fuel_type_end_use << {
+            :fuel_type => m[:fuel_type],
+            :end_use => m[:end_use],
+            :value => v.to_f
+          }
+        end
+      end
+    end
+
+    heating_mbtus = fuel_type_end_use.select{|k| k[:end_use] == "heating"}
+    assert heating_mbtus.size == 1
+
+    heating_m_btu = fuel_type_end_use.select{|k| k[:fuel_type] == "natural_gas" && k[:end_use] == "heating"}[0][:value]
+    total_m_btu = fuel_type_end_use.inject(0) { |sum, h| sum + h[:value]}
+
+    heating_pct = (heating_m_btu / total_m_btu)
+
+    # If heating is less than 2% of usage, throw
+    assert_operator heating_pct, :>, 0.02
+
+  end
 end
